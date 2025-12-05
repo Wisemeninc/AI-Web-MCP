@@ -6,10 +6,13 @@ A minimalistic web UI for interacting with multiple AI model providers (Ollama, 
 
 - 🤖 **Multiple AI Providers**: Support for Ollama, OpenAI, Claude, Google, and OpenRouter
 - 💬 **Real-time Streaming**: Server-Sent Events (SSE) for streaming responses
-- 🔌 **MCP Integration**: HTTP SSE support for Model Context Protocol servers
-- 🎨 **Minimalistic UI**: Clean, dark-themed chat interface
+- 🔌 **MCP Integration**: HTTP SSE support for Model Context Protocol servers with JSON-RPC 2.0
+- 🛠️ **Tool Calling**: Full support for MCP tool discovery and execution across all providers
+- 🎨 **Minimalistic UI**: Clean, dark-themed chat interface with compact layout
 - 🐳 **Dockerized**: Easy deployment with Docker and Docker Compose
-- 🔄 **Live Status**: Real-time MCP connection status monitoring
+- 🔄 **Live Status**: Real-time MCP connection status monitoring with collapsible details
+- ⌨️ **Command History**: Arrow up/down to navigate through previous messages
+- 📦 **Collapsible Tools**: Click on tool calls to expand/collapse JSON details
 
 ## Quick Start
 
@@ -64,6 +67,7 @@ python app.py
 - `MCP_SERVER_URL`: URL for your MCP HTTP SSE server (legacy, optional)
 - `MCP_AUTH_TOKEN`: Bearer token for MCP server (legacy, optional)
 - `MCP_SERVERS`: JSON configuration for multiple named MCP servers (see below)
+- `SYSTEM_PROMPT`: Custom system prompt for the AI assistant (optional, default: "You are a helpful AI assistant.")
 
 ### Supported Models
 
@@ -76,8 +80,16 @@ python app.py
 - gpt-3.5-turbo
 
 **Claude**:
+- claude-opus-4-5-20251101
+- claude-haiku-4-5-20251001
+- claude-sonnet-4-5-20250929
+- claude-opus-4-1-20250805
+- claude-opus-4-20250514
+- claude-sonnet-4-20250514
+- claude-3-7-sonnet-20250219
 - claude-3-5-sonnet-20241022
 - claude-3-5-haiku-20241022
+- claude-3-haiku-20240307
 - claude-3-opus-20240229
 
 **Google**:
@@ -156,10 +168,21 @@ MCP_SERVERS={"huginn": {"url": "https://huginn.freakshowindustries.net/mcp/", "a
 
 Each MCP server requires:
 - **name**: A unique identifier for the server (used as the key)
-- **url**: The HTTP SSE endpoint URL (must end with `/`)
+- **url**: The HTTP SSE endpoint URL (**must end with `/`**)
 - **auth_token**: Optional Bearer token for authentication
 
-The UI will display the connection status for all configured servers in the header. Hover over the MCP status to see individual server statuses.
+The UI will display the connection status for all configured servers in the header. Click on the MCP status bar to expand and see detailed connection information for each server.
+
+### Tool Calling
+
+The application automatically discovers tools from all configured MCP servers and makes them available to AI models. When a model decides to use a tool:
+
+1. The tool call is displayed in an orange box (click to expand details)
+2. The tool is executed via the appropriate MCP server
+3. The result is displayed in a green box (click to expand details)
+4. The conversation continues with the tool result
+
+**Note**: Some Ollama models (like DeepSeek) don't support tool calling. The application will automatically retry without tools for these models.
 
 ## Docker Details
 
