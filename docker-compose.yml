@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  ai-web:
+    build: .
+    ports:
+      - "5005:5005"
+    environment:
+      # API Keys - Set these in your .env file
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      
+      # Service URLs
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      
+      # MCP Configuration (Legacy single server)
+      - MCP_SERVER_URL=${MCP_SERVER_URL:-}
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:-}
+      
+      # Multiple MCP Servers (JSON format)
+      - MCP_SERVERS=${MCP_SERVERS:-}
+      
+      # System Prompt
+      - SYSTEM_PROMPT=${SYSTEM_PROMPT:-You are a helpful AI assistant.}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+      - ./app.py:/app/app.py
+      - ./templates:/app/templates

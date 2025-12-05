@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #1a1a1a;
+            border-bottom: 1px solid #333;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .model-selector {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        select {
+            background: #2a2a2a;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        select:hover {
+            border-color: #666;
+        }
+
+        .mcp-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            padding: 4px 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .mcp-status:hover {
+            background: #333;
+        }
+
+        .mcp-details {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 4px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 11px;
+            min-width: 200px;
+            display: none;
+            z-index: 1000;
+        }
+
+        .mcp-details.show {
+            display: block;
+        }
+
+        .mcp-status-wrapper {
+            position: relative;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.connected {
+            background: #4ade80;
+            box-shadow: 0 0 8px #4ade8080;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: #2563eb;
+            color: white;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+
+        .message.assistant {
+            background: #2a2a2a;
+            color: #e0e0e0;
+            align-self: flex-start;
+            border: 1px solid #333;
+        }
+
+        .message.system {
+            background: #7c3aed;
+            color: white;
+            align-self: center;
+            font-size: 12px;
+            max-width: 60%;
+            padding: 6px 10px;
+        }
+
+        .message.tool-call {
+            background: #f59e0b;
+            color: #1a1a1a;
+            align-self: center;
+            font-size: 11px;
+            max-width: 70%;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            padding: 6px 10px;
+        }
+
+        .message.tool-call:hover {
+            opacity: 0.8;
+        }
+
+        .message.tool-result {
+            background: #10b981;
+            color: #1a1a1a;
+            align-self: center;
+            font-size: 11px;
+            max-width: 70%;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            padding: 6px 10px;
+        }
+
+        .message.tool-result:hover {
+            opacity: 0.8;
+        }
+
+        .tool-summary {
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+
+        .tool-details {
+            margin-top: 2px;
+            padding-top: 2px;
+            border-top: 1px solid rgba(0,0,0,0.2);
+            font-size: 10px;
+        }
+
+        .tool-details.collapsed {
+            display: none;
+        }
+
+        .input-container {
+            background: #1a1a1a;
+            border-top: 1px solid #333;
+            padding: 15px 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        #message-input {
+            flex: 1;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            resize: none;
+            font-family: inherit;
+            max-height: 150px;
+        }
+
+        #message-input:focus {
+            border-color: #2563eb;
+        }
+
+        #send-button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        #send-button:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+
+        #send-button:disabled {
+            background: #444;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .typing-indicator {
+            display: none;
+            align-self: flex-start;
+            background: #2a2a2a;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid #333;
+        }
+
+        .typing-indicator.active {
+            display: block;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            background: #666;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <div class="model-selector">
+                <select id="provider-select">
+                    <option value="">Select Provider</option>
+                </select>
+                <select id="model-select" disabled>
+                    <option value="">Select Model</option>
+                </select>
+            </div>
+        </div>
+        <div class="mcp-status-wrapper">
+            <div class="mcp-status" id="mcp-status-container">
+                <span class="status-dot" id="mcp-dot"></span>
+                <span id="mcp-text">MCP: Checking...</span>
+            </div>
+            <div class="mcp-details" id="mcp-details"></div>
+        </div>
+    </div>
+
+    <div class="chat-container" id="chat-container">
+        <div class="empty-state">
+            Select a provider and model to start chatting
+        </div>
+    </div>
+
+    <div class="typing-indicator" id="typing-indicator">
+        <div class="typing-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>
+
+    <div class="input-container">
+        <textarea id="message-input" placeholder="Type your message..." rows="1"></textarea>
+        <button id="send-button" disabled>Send</button>
+    </div>
+
+    <script>
+        let providers = {};
+        let currentProvider = '';
+        let currentModel = '';
+        let messages = [];
+        let isStreaming = false;
+        let messageHistory = [];
+        let historyIndex = -1;
+
+        // Elements
+        const providerSelect = document.getElementById('provider-select');
+        const modelSelect = document.getElementById('model-select');
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const mcpDot = document.getElementById('mcp-dot');
+        const mcpText = document.getElementById('mcp-text');
+
+        // Load providers
+        async function loadProviders() {
+            try {
+                const response = await fetch('/api/providers');
+                providers = await response.json();
+                
+                providerSelect.innerHTML = '<option value="">Select Provider</option>';
+                Object.keys(providers).forEach(key => {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = providers[key].name;
+                    providerSelect.appendChild(option);
+                });
+                return providers;
+            } catch (error) {
+                console.error('Failed to load providers:', error);
+                return {};
+            }
+        }
+
+        // Check MCP status
+        async function checkMCPStatus() {
+            try {
+                const response = await fetch('/api/mcp/status');
+                const data = await response.json();
+                
+                if (data.connected) {
+                    mcpDot.classList.add('connected');
+                    mcpDot.classList.remove('disconnected');
+                    mcpText.textContent = 'MCP: ' + data.message;
+                    
+                    // Update details panel
+                    const detailsHtml = data.servers.map(s => 
+                        `<div style="padding: 4px 0;">${s.connected ? '✓' : '✗'} ${s.name}: ${s.message}</div>`
+                    ).join('');
+                    mcpDetails.innerHTML = detailsHtml;
+                } else {
+                    mcpDot.classList.remove('connected');
+                    mcpDot.classList.add('disconnected');
+                    mcpText.textContent = 'MCP: ' + data.message;
+                    mcpDetails.innerHTML = '<div style="padding: 4px 0;">No servers connected</div>';
+                }
+            } catch (error) {
+                mcpDot.classList.remove('connected');
+                mcpDot.classList.add('disconnected');
+                mcpText.textContent = 'MCP: Error';
+                mcpDetails.innerHTML = '<div style="padding: 4px 0;">Connection error</div>';
+            }
+        }
+
+        // Toggle MCP details
+        const mcpStatusContainer = document.getElementById('mcp-status-container');
+        const mcpDetails = document.getElementById('mcp-details');
+        
+        mcpStatusContainer.addEventListener('click', () => {
+            mcpDetails.classList.toggle('show');
+        });
+
+        // Close details when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.mcp-status-wrapper')) {
+                mcpDetails.classList.remove('show');
+            }
+        });
+
+        // Provider change handler
+        providerSelect.addEventListener('change', (e) => {
+            currentProvider = e.target.value;
+            modelSelect.innerHTML = '<option value="">Select Model</option>';
+            
+            if (currentProvider && providers[currentProvider]) {
+                const models = providers[currentProvider].models;
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    modelSelect.appendChild(option);
+                });
+                modelSelect.disabled = false;
+            } else {
+                modelSelect.disabled = true;
+                currentModel = '';
+                sendButton.disabled = true;
+            }
+        });
+
+        // Model change handler
+        modelSelect.addEventListener('change', (e) => {
+            currentModel = e.target.value;
+            sendButton.disabled = !currentModel;
+        });
+
+        // Add message to chat
+        function addMessage(role, content) {
+            const emptyState = chatContainer.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.textContent = content;
+            chatContainer.appendChild(messageDiv);
+            
+            // Smooth scroll to bottom
+            chatContainer.scrollTo({
+                top: chatContainer.scrollHeight,
+                behavior: 'smooth'
+            });
+            
+            return messageDiv;
+        }
+
+        // Send message
+        async function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content || !currentProvider || !currentModel || isStreaming) return;
+
+            isStreaming = true;
+            sendButton.disabled = true;
+            
+            // Add to history
+            messageHistory.push(content);
+            historyIndex = messageHistory.length;
+            
+            messageInput.value = '';
+            
+            // Add user message
+            messages.push({ role: 'user', content: content });
+            addMessage('user', content);
+            
+            // Show typing indicator
+            typingIndicator.classList.add('active');
+            chatContainer.appendChild(typingIndicator);
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: messages,
+                        provider: currentProvider,
+                        model: currentModel
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantMessage = '';
+                let messageDiv = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.content) {
+                                    if (!messageDiv) {
+                                        typingIndicator.classList.remove('active');
+                                        messageDiv = addMessage('assistant', '');
+                                    }
+                                    assistantMessage += data.content;
+                                    messageDiv.textContent = assistantMessage;
+                                    
+                                    // Keep scrolling to bottom during streaming
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                }
+                                
+                                if (data.tool_call) {
+                                    typingIndicator.classList.remove('active');
+                                    const argsStr = JSON.stringify(data.arguments, null, 2);
+                                    const toolMsg = document.createElement('div');
+                                    toolMsg.className = 'message tool-call';
+                                    toolMsg.innerHTML = `<div class="tool-summary">🔧 ${data.tool_call}</div><div class="tool-details collapsed">${argsStr}</div>`;
+                                    toolMsg.onclick = function() {
+                                        this.querySelector('.tool-details').classList.toggle('collapsed');
+                                    };
+                                    chatContainer.appendChild(toolMsg);
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                }
+                                
+                                if (data.tool_result) {
+                                    const resultStr = JSON.stringify(data.result, null, 2);
+                                    const resultMsg = document.createElement('div');
+                                    resultMsg.className = 'message tool-result';
+                                    resultMsg.innerHTML = `<div class="tool-summary">✓ ${data.tool_result}</div><div class="tool-details collapsed">${resultStr}</div>`;
+                                    resultMsg.onclick = function() {
+                                        this.querySelector('.tool-details').classList.toggle('collapsed');
+                                    };
+                                    chatContainer.appendChild(resultMsg);
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                }
+                                
+                                if (data.done) {
+                                    if (assistantMessage) {
+                                        messages.push({ role: 'assistant', content: assistantMessage });
+                                    }
+                                }
+                                
+                                if (data.error) {
+                                    typingIndicator.classList.remove('active');
+                                    addMessage('system', 'Error: ' + data.error);
+                                }
+                            } catch (e) {
+                                console.error('Parse error:', e);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                typingIndicator.classList.remove('active');
+                addMessage('system', 'Error: ' + error.message);
+            } finally {
+                isStreaming = false;
+                sendButton.disabled = !currentModel;
+                typingIndicator.classList.remove('active');
+            }
+        }
+
+        // Send button click
+        sendButton.addEventListener('click', sendMessage);
+
+        // Enter key to send (Shift+Enter for new line), arrow keys for history
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (messageHistory.length > 0 && historyIndex > 0) {
+                    historyIndex--;
+                    messageInput.value = messageHistory[historyIndex];
+                    // Move cursor to end
+                    messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+                    // Trigger resize
+                    messageInput.dispatchEvent(new Event('input'));
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex < messageHistory.length - 1) {
+                    historyIndex++;
+                    messageInput.value = messageHistory[historyIndex];
+                    // Move cursor to end
+                    messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+                    // Trigger resize
+                    messageInput.dispatchEvent(new Event('input'));
+                } else if (historyIndex === messageHistory.length - 1) {
+                    historyIndex = messageHistory.length;
+                    messageInput.value = '';
+                    messageInput.dispatchEvent(new Event('input'));
+                }
+            }
+        });
+
+        // Auto-resize textarea
+        messageInput.addEventListener('input', () => {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = messageInput.scrollHeight + 'px';
+        });
+
+        // Initialize
+        loadProviders().then(() => {
+            // Set default provider and model
+            const defaultProvider = 'ollama';
+            const defaultModel = 'gpt-oss:latest';
+            
+            if (providers[defaultProvider]) {
+                providerSelect.value = defaultProvider;
+                currentProvider = defaultProvider;
+                
+                // Populate models
+                modelSelect.innerHTML = '<option value="">Select Model</option>';
+                const models = providers[defaultProvider].models;
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    if (model === defaultModel) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                });
+                
+                modelSelect.disabled = false;
+                
+                // Set default model
+                if (models.includes(defaultModel)) {
+                    currentModel = defaultModel;
+                    modelSelect.value = defaultModel;
+                    sendButton.disabled = false;
+                }
+            }
+            
+            // Focus the input field after initialization
+            messageInput.focus();
+        });
+        checkMCPStatus();
+        setInterval(checkMCPStatus, 10000); // Check MCP status every 10 seconds
+    </script>
+</body>
+</html>
