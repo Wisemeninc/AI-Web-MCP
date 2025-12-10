@@ -16,11 +16,17 @@
             background: #0f0f0f;
             color: #e0e0e0;
             height: 100vh;
-            display: flex;
-            flex-direction: column;
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            grid-template-rows: auto 1fr auto;
+            grid-template-areas: 
+                "header header"
+                "chat sidebar"
+                "input sidebar";
         }
 
         .header {
+            grid-area: header;
             background: #1a1a1a;
             border-bottom: 1px solid #333;
             padding: 12px 20px;
@@ -114,7 +120,7 @@
         }
 
         .chat-container {
-            flex: 1;
+            grid-area: chat;
             overflow-y: auto;
             padding: 12px;
             display: flex;
@@ -198,16 +204,202 @@
             font-size: 10px;
         }
 
+        .thinking-section {
+            background: #2a2a4a;
+            border: 1px solid #3a3a5a;
+            border-radius: 4px;
+            margin: 8px 0;
+            padding: 8px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .thinking-section:hover {
+            opacity: 0.8;
+        }
+
+        .thinking-header {
+            font-weight: bold;
+            color: #a0a0ff;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .thinking-content {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #3a3a5a;
+            font-size: 12px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+        }
+
+        .thinking-content.collapsed {
+            display: none;
+        }
+
+        .toggle-icon {
+            font-size: 10px;
+        }
+
         .tool-details.collapsed {
             display: none;
         }
 
         .input-container {
+            grid-area: input;
             background: #1a1a1a;
             border-top: 1px solid #333;
             padding: 15px 20px;
             display: flex;
             gap: 10px;
+        }
+
+        .sidebar {
+            grid-area: sidebar;
+            background: #1a1a1a;
+            border-left: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid #333;
+            overflow: hidden;
+        }
+
+        .sidebar-section:last-child {
+            border-bottom: none;
+            flex: 1;
+        }
+
+        .sidebar-header {
+            padding: 10px 15px;
+            background: #222;
+            border-bottom: 1px solid #333;
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-content {
+            padding: 12px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .prompt-display {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #bbb;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .prompt-editor {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            outline: none;
+            resize: none;
+            font-family: inherit;
+            line-height: 1.5;
+            width: 100%;
+            min-height: 150px;
+        }
+
+        .prompt-editor:focus {
+            border-color: #2563eb;
+        }
+
+        .prompt-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .prompt-button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background 0.2s;
+            flex: 1;
+        }
+
+        .prompt-button:hover {
+            background: #1d4ed8;
+        }
+
+        .prompt-button.secondary {
+            background: #444;
+        }
+
+        .prompt-button.secondary:hover {
+            background: #555;
+        }
+
+        .toggle-sidebar {
+            display: none;
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            margin-left: auto;
+        }
+
+        @media (max-width: 1024px) {
+            body {
+                grid-template-columns: 1fr;
+                grid-template-areas: 
+                    "header"
+                    "chat"
+                    "input";
+            }
+
+            .sidebar {
+                display: none;
+                position: fixed;
+                right: 0;
+                top: 0;
+                bottom: 0;
+                width: 350px;
+                z-index: 1000;
+                box-shadow: -2px 0 10px rgba(0,0,0,0.5);
+            }
+
+            .sidebar.show {
+                display: flex;
+            }
+
+            .toggle-sidebar {
+                display: block;
+            }
         }
 
         #message-input {
@@ -335,6 +527,7 @@
                 </select>
             </div>
         </div>
+        <button class="toggle-sidebar" id="toggle-sidebar">Prompts ☰</button>
         <div class="mcp-status-wrapper">
             <div class="mcp-status" id="mcp-status-container">
                 <span class="status-dot" id="mcp-dot"></span>
@@ -363,6 +556,30 @@
         <button id="send-button" disabled>Send</button>
     </div>
 
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-header">
+                <span>System Prompt</span>
+            </div>
+            <div class="sidebar-content">
+                <div class="prompt-display" id="system-prompt-display">Loading...</div>
+            </div>
+        </div>
+        
+        <div class="sidebar-section">
+            <div class="sidebar-header">
+                <span>User Prompt</span>
+            </div>
+            <div class="sidebar-content">
+                <textarea class="prompt-editor" id="user-prompt-editor" placeholder="Enter custom instructions for the AI..."></textarea>
+                <div class="prompt-actions">
+                    <button class="prompt-button" id="apply-user-prompt">Apply</button>
+                    <button class="prompt-button secondary" id="clear-user-prompt">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         let providers = {};
         let currentProvider = '';
@@ -371,6 +588,8 @@
         let isStreaming = false;
         let messageHistory = [];
         let historyIndex = -1;
+        let systemPrompt = 'You are a helpful AI assistant.';
+        let userPrompt = '';
 
         // Elements
         const providerSelect = document.getElementById('provider-select');
@@ -381,6 +600,12 @@
         const typingIndicator = document.getElementById('typing-indicator');
         const mcpDot = document.getElementById('mcp-dot');
         const mcpText = document.getElementById('mcp-text');
+        const systemPromptDisplay = document.getElementById('system-prompt-display');
+        const userPromptEditor = document.getElementById('user-prompt-editor');
+        const applyUserPromptBtn = document.getElementById('apply-user-prompt');
+        const clearUserPromptBtn = document.getElementById('clear-user-prompt');
+        const toggleSidebarBtn = document.getElementById('toggle-sidebar');
+        const sidebar = document.getElementById('sidebar');
 
         // Load providers
         async function loadProviders() {
@@ -474,6 +699,46 @@
             sendButton.disabled = !currentModel;
         });
 
+        // Render message with collapsible thinking sections
+        function renderMessageWithThinking(messageDiv, content) {
+            // Parse thinking/scratchpad tags
+            const thinkingRegex = /<(scratchpad|thinking)>([\s\S]*?)<\/(scratchpad|thinking)>/gi;
+            const answerRegex = /<answer>([\s\S]*?)<\/answer>/gi;
+            
+            let html = '';
+            let lastIndex = 0;
+            let match;
+            
+            // Find all thinking/scratchpad sections
+            const matches = [];
+            const regex = /<(scratchpad|thinking|answer)>([\s\S]*?)<\/(scratchpad|thinking|answer)>|([^<]+|<(?!\/?(scratchpad|thinking|answer)>))/gi;
+            
+            let processedContent = content;
+            
+            // Replace thinking/scratchpad tags with collapsible divs
+            processedContent = processedContent.replace(/<(scratchpad|thinking)>([\s\S]*?)<\/(scratchpad|thinking)>/gi, 
+                (match, tag, content) => {
+                    const id = 'thinking-' + Math.random().toString(36).substr(2, 9);
+                    return `<div class="thinking-section" onclick="document.getElementById('${id}').classList.toggle('collapsed')">
+                        <div class="thinking-header"><span class="toggle-icon">▼</span> ${tag.charAt(0).toUpperCase() + tag.slice(1)}</div>
+                        <div class="thinking-content collapsed" id="${id}">${escapeHtml(content.trim())}</div>
+                    </div>`;
+                }
+            );
+            
+            // Remove answer tags but keep content
+            processedContent = processedContent.replace(/<\/?answer>/gi, '');
+            
+            messageDiv.innerHTML = processedContent;
+        }
+        
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         // Add message to chat
         function addMessage(role, content) {
             const emptyState = chatContainer.querySelector('.empty-state');
@@ -495,6 +760,49 @@
             return messageDiv;
         }
 
+        // Load system prompt from backend
+        async function loadSystemPrompt() {
+            try {
+                const response = await fetch('/api/system-prompt');
+                const data = await response.json();
+                systemPrompt = data.system_prompt || 'You are a helpful AI assistant.';
+                // Replace \n with actual newlines for display
+                systemPromptDisplay.textContent = systemPrompt.replace(/\\n/g, '\n');
+            } catch (error) {
+                console.error('Failed to load system prompt:', error);
+                systemPromptDisplay.textContent = 'Error loading system prompt';
+            }
+        }
+
+        // Apply user prompt
+        applyUserPromptBtn.addEventListener('click', () => {
+            userPrompt = userPromptEditor.value.trim();
+            if (userPrompt) {
+                addMessage('system', '✓ User prompt applied: ' + userPrompt.substring(0, 100) + (userPrompt.length > 100 ? '...' : ''));
+            }
+        });
+
+        // Clear user prompt
+        clearUserPromptBtn.addEventListener('click', () => {
+            userPrompt = '';
+            userPromptEditor.value = '';
+            addMessage('system', '✓ User prompt cleared');
+        });
+
+        // Toggle sidebar on mobile
+        toggleSidebarBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('show');
+        });
+
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth <= 1024 && 
+                !e.target.closest('.sidebar') && 
+                !e.target.closest('.toggle-sidebar')) {
+                sidebar.classList.remove('show');
+            }
+        });
+
         // Send message
         async function sendMessage() {
             const content = messageInput.value.trim();
@@ -509,8 +817,14 @@
             
             messageInput.value = '';
             
-            // Add user message
-            messages.push({ role: 'user', content: content });
+            // Combine user prompt with message if set
+            let finalContent = content;
+            if (userPrompt) {
+                finalContent = `${userPrompt}\n\n${content}`;
+            }
+            
+            // Add user message (display original, send combined)
+            messages.push({ role: 'user', content: finalContent });
             addMessage('user', content);
             
             // Show typing indicator
@@ -532,12 +846,16 @@
                 const decoder = new TextDecoder();
                 let assistantMessage = '';
                 let messageDiv = null;
+                let streamDone = false;
 
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) break;
+                    if (done) {
+                        console.log('Stream ended. Final message length:', assistantMessage.length);
+                        break;
+                    }
 
-                    const chunk = decoder.decode(value);
+                    const chunk = decoder.decode(value, { stream: true });
                     const lines = chunk.split('\n');
 
                     for (const line of lines) {
@@ -551,7 +869,9 @@
                                         messageDiv = addMessage('assistant', '');
                                     }
                                     assistantMessage += data.content;
-                                    messageDiv.textContent = assistantMessage;
+                                    
+                                    // Process and render message with collapsible thinking sections
+                                    renderMessageWithThinking(messageDiv, assistantMessage);
                                     
                                     // Keep scrolling to bottom during streaming
                                     chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -583,9 +903,7 @@
                                 }
                                 
                                 if (data.done) {
-                                    if (assistantMessage) {
-                                        messages.push({ role: 'assistant', content: assistantMessage });
-                                    }
+                                    streamDone = true;
                                 }
                                 
                                 if (data.error) {
@@ -593,10 +911,16 @@
                                     addMessage('system', 'Error: ' + data.error);
                                 }
                             } catch (e) {
-                                console.error('Parse error:', e);
+                                console.error('Parse error:', e, 'Line:', line);
                             }
                         }
                     }
+                }
+                
+                // Always save the assistant message after stream ends
+                if (assistantMessage) {
+                    messages.push({ role: 'assistant', content: assistantMessage });
+                    console.log('Saved assistant message. Total length:', assistantMessage.length);
                 }
             } catch (error) {
                 console.error('Error:', error);
@@ -686,6 +1010,11 @@
             // Focus the input field after initialization
             messageInput.focus();
         });
+        
+        // Load system prompt
+        loadSystemPrompt();
+        
+        // Check MCP status
         checkMCPStatus();
         setInterval(checkMCPStatus, 10000); // Check MCP status every 10 seconds
     </script>

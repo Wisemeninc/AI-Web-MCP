@@ -77,26 +77,35 @@ if GOOGLE_API_KEY:
 def index():
     return render_template('index.html')
 
+@app.route('/api/system-prompt', methods=['GET'])
+def get_system_prompt():
+    """Get the current system prompt"""
+    return jsonify({'system_prompt': SYSTEM_PROMPT})
+
 @app.route('/api/providers', methods=['GET'])
 def get_providers():
     """Get available providers and their models"""
+    # NOTE: GPU offloading not detected - ROCm 7.1.1 + gfx1151 (Radeon 8060S)
+    # Ollama falls back to CPU-only despite GPU available (96GB VRAM unused)
+    # CPU inference works fine with 32GB RAM - medium models supported
     providers = {
-        'ollama': {'name': 'Ollama', 'models': []},
-        'openai': {'name': 'OpenAI', 'models': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']},
-        'claude': {'name': 'Claude', 'models': ['claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929', 'claude-opus-4-1-20250805', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-7-sonnet-20250219', 'claude-3-5-haiku-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229']},
-        'google': {'name': 'Google', 'models': ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash']},
-        'openrouter': {'name': 'OpenRouter', 'models': ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'google/gemini-2.0-flash-exp']}
+        'ollama': {'name': 'Ollama', 'models': ['qwen3:32b','deepseek-coder:33b','llama3:latest','gemma3:12b','phi3:14b','qwen3:8b','granite4:latest','llama3.2:latest']},
+        #'openai': {'name': 'OpenAI', 'models': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']},
+        #'claude': {'name': 'Claude', 'models': ['claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929', 'claude-opus-4-1-20250805', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-7-sonnet-20250219', 'claude-3-5-haiku-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229']},
+        'claude': {'name': 'Claude', 'models': ['claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929']},
+        #'google': {'name': 'Google', 'models': ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash']},
+        #'openrouter': {'name': 'OpenRouter', 'models': ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'google/gemini-2.0-flash-exp']}
     }
     
     # Get Ollama models if available
-    try:
-        response = requests.get(f'{OLLAMA_BASE_URL}/api/tags', timeout=2)
-        if response.status_code == 200:
-            models = response.json().get('models', [])
-            providers['ollama']['models'] = [m['name'] for m in models]
-    except:
-        pass
-    
+#    try:
+#        response = requests.get(f'{OLLAMA_BASE_URL}/api/tags', timeout=2)
+#        if response.status_code == 200:
+#            models = response.json().get('models', [])
+#            providers['ollama']['models'] = [m['name'] for m in models]
+#    except:
+#        pass
+#    
     return jsonify(providers)
 
 @app.route('/api/mcp/status', methods=['GET'])
@@ -161,20 +170,68 @@ def chat():
     
     # Add system prompt and MCP context if needed
     mcp_context = ""
+    reasoning_instructions = ""
+    
     if use_mcp and (MCP_SERVERS or MCP_SERVER_URL):
         mcp_context = "\n\nNote: An MCP (Model Context Protocol) server is available for extended capabilities."
         print(f"[CHAT] Adding MCP context to system prompt")
+    
+    # Add reasoning and tool use instructions for Ollama models
+    if provider == 'ollama':
+        reasoning_instructions = """
+
+IMPORTANT INSTRUCTIONS FOR REASONING AND TOOL USE:
+
+1. **Use Thinking/Reasoning**: Before providing your final answer, wrap your reasoning process in <thinking> or <scratchpad> tags. This helps you:
+   - Break down complex problems step by step
+   - Plan which tools to use and in what order
+   - Verify your logic before responding
+   - Show your thought process transparently
+
+2. **Use Multiple Tools When Needed**: Don't hesitate to call multiple tools in sequence or parallel:
+   - Chain tool calls to build comprehensive answers
+   - Use one tool's output to inform the next tool call
+   - Combine data from different sources
+   - Iterate if initial results need refinement
+
+3. **Tool Calling Best Practices**:
+   - Call tools whenever you need real-time data or external information
+   - Don't make assumptions - use tools to verify information
+   - If one tool doesn't give complete results, try related tools
+   - Explain what you learned from each tool call
+
+4. **Response Format**:
+   <thinking>
+   [Your step-by-step reasoning here]
+   - What information do I need?
+   - Which tools should I use?
+   - How will I combine the results?
+   </thinking>
+   
+   [Make your tool calls here]
+   
+   <answer>
+   [Your final, synthesized response to the user]
+   </answer>
+
+Example workflow:
+- User asks a complex question
+- Use <thinking> to plan your approach
+- Call multiple tools as needed
+- Synthesize results in <answer> tags"""
+    
+    full_context = f"{mcp_context}{reasoning_instructions}"
     
     # Add to existing system message or create new one
     has_system = any(msg['role'] == 'system' for msg in messages)
     if has_system:
         for msg in messages:
             if msg['role'] == 'system':
-                msg['content'] += mcp_context
+                msg['content'] += full_context
                 break
     else:
         print(f"[CHAT] Using system prompt: {SYSTEM_PROMPT[:50]}...")
-        messages.insert(0, {'role': 'system', 'content': f'{SYSTEM_PROMPT}{mcp_context}'})
+        messages.insert(0, {'role': 'system', 'content': f'{SYSTEM_PROMPT}{full_context}'})
     
     def generate() -> Generator[str, None, None]:
         try:
@@ -208,11 +265,22 @@ def stream_ollama(messages, model):
                 server_tool_map[tool['name']] = server_name
             all_tools.extend(session.tools)
     
-    payload = {'model': model, 'messages': messages, 'stream': True}
+    payload = {
+        'model': model, 
+        'messages': messages, 
+        'stream': True,
+        'keep_alive': '5m',  # Unload model after 5 minutes of inactivity
+        'options': {
+            'num_predict': -1,  # Allow unlimited generation
+            'temperature': 0.7,  # Balanced creativity
+        }
+    }
     if all_tools:
         tools = convert_mcp_tools_to_openai(all_tools)
         payload['tools'] = tools
         print(f"[Ollama] Publishing {len(tools)} tools to model {model}: {[t['function']['name'] for t in tools]}")
+        # Add tool use encouragement to payload
+        payload['options']['num_ctx'] = 8192  # Larger context for tool use
     
     print(f"[Ollama] Connecting to {OLLAMA_BASE_URL}/api/chat")
     
@@ -328,10 +396,16 @@ def stream_ollama(messages, model):
                                 cont_content = cont_data['message'].get('content', '')
                                 if cont_content:
                                     yield f"data: {json.dumps({'content': cont_content})}\n\n"
+                            if cont_data.get('done', False):
+                                break
                 
+                # Always send done signal at the end
                 yield f"data: {json.dumps({'done': True})}\n\n"
                 print(f"[Ollama] Stream complete. Lines processed: {line_count}")
                 break
+    
+    # Ensure done signal is sent even if loop exits unexpectedly
+    print(f"[Ollama] Stream finished")
 
 def stream_openai(messages, model):
     """Stream responses from OpenAI with tool calling support"""

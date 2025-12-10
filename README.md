@@ -234,6 +234,43 @@ Ensure all required API keys are set in your `.env` file and the file is in the 
 ### MCP Connection
 Verify your MCP server is running and accessible from the Docker container. Check the status indicator in the UI header.
 
+### ROCm GPU Issues (Fedora with AMD Radeon 8060S / gfx1151)
+
+If you're experiencing GPU hangs with certain large models (like deepseek-r1:70b) on Fedora with ROCm:
+
+1. **Install missing libdrm library**:
+```bash
+sudo dnf install -y libdrm libdrm-devel
+```
+
+2. **Check GPU temperature during inference**:
+```bash
+watch -n 1 rocm-smi --showtemp
+```
+
+3. **Update ROCm to latest version**:
+```bash
+sudo dnf upgrade rocm-*
+```
+
+4. **Verify GPU architecture support**:
+```bash
+rocminfo | grep "Marketing Name"
+rocm-smi --showproductname
+```
+
+5. **Known Issues**:
+   - **deepseek-r1:70b**: Causes GPU hang on gfx1151 (Radeon 8060S) with ROCm 6.4.2
+   - **Workaround**: Use alternative models like `gpt-oss:120b`, `mixtral:8x22b`, or `llama4:latest`
+   - **Root cause**: Possible ROCm driver compatibility issue with new RDNA 3.5 architecture
+
+6. **Check Ollama logs for GPU errors**:
+```bash
+sudo journalctl -u ollama -f
+```
+
+If GPU hangs persist, the model may be triggering a hardware exception. Use smaller quantizations or alternative models until ROCm support improves for gfx1151.
+
 ## License
 
 MIT License - Feel free to use and modify as needed.
