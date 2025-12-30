@@ -8,11 +8,15 @@ A minimalistic web UI for interacting with multiple AI model providers (Ollama, 
 - 💬 **Real-time Streaming**: Server-Sent Events (SSE) for streaming responses
 - 🔌 **MCP Integration**: HTTP SSE support for Model Context Protocol servers with JSON-RPC 2.0
 - 🛠️ **Tool Calling**: Full support for MCP tool discovery and execution across all providers
+- 🔍 **QA Agent**: Automatic response validation with configurable follow-up model for data verification
+- 📊 **Live Statistics**: Real-time query stats including time-to-first-token, tokens/sec, and total time
+- 📋 **Activity Log**: Step-by-step activity tracking in sidebar showing connection, thinking, streaming, and tool states
 - 🎨 **Minimalistic UI**: Clean, dark-themed chat interface with compact layout
 - 🐳 **Dockerized**: Easy deployment with Docker and Docker Compose
 - 🔄 **Live Status**: Real-time MCP connection status monitoring with collapsible details
 - ⌨️ **Command History**: Arrow up/down to navigate through previous messages
 - 📦 **Collapsible Tools**: Click on tool calls to expand/collapse JSON details
+- 🧠 **Thinking Model Support**: Extended timeouts and status updates for reasoning models like qwen3-next
 
 ## Quick Start
 
@@ -64,16 +68,32 @@ python app.py
 - `GOOGLE_API_KEY`: Your Google AI API key
 - `OPENROUTER_API_KEY`: Your OpenRouter API key
 - `OLLAMA_BASE_URL`: URL for Ollama server (default: http://localhost:11434)
+- `OLLAMA_KEEP_ALIVE`: How long to keep model loaded in memory (default: 1h, examples: '5m', '30m', '1h', '-1' for never unload)
 - `MCP_SERVER_URL`: URL for your MCP HTTP SSE server (legacy, optional)
 - `MCP_AUTH_TOKEN`: Bearer token for MCP server (legacy, optional)
 - `MCP_SERVERS`: JSON configuration for multiple named MCP servers (see below)
 - `SYSTEM_PROMPT`: Custom system prompt for the AI assistant (optional, default: "You are a helpful AI assistant.")
 
+#### QA Agent Configuration
+
+- `QA_AGENT_ENABLED`: Enable/disable QA agent response validation (default: false)
+- `QA_AGENT_MODEL`: Ollama model for follow-up questions (default: gpt-oss:latest)
+- `QA_AGENT_MAX_RETRIES`: Maximum retry attempts if response lacks data (default: 1)
+
 ### Supported Models
 
-**Ollama**: Automatically detects installed models
+**Ollama**: Configurable list of models (auto-detection available but disabled by default). Default models include:
+- llama4:latest
+- qwen3-next:latest (thinking model with extended reasoning)
+- deepseek-coder:33b
+- llama3:latest
+- gemma3:12b
+- phi3:14b
+- qwen3:8b
+- granite4:latest
+- llama3.2:latest
 
-**OpenAI**:
+**OpenAI** (disabled by default, uncomment in code):
 - gpt-4o
 - gpt-4o-mini
 - gpt-4-turbo
@@ -83,21 +103,13 @@ python app.py
 - claude-opus-4-5-20251101
 - claude-haiku-4-5-20251001
 - claude-sonnet-4-5-20250929
-- claude-opus-4-1-20250805
-- claude-opus-4-20250514
-- claude-sonnet-4-20250514
-- claude-3-7-sonnet-20250219
-- claude-3-5-sonnet-20241022
-- claude-3-5-haiku-20241022
-- claude-3-haiku-20240307
-- claude-3-opus-20240229
 
-**Google**:
+**Google** (disabled by default, uncomment in code):
 - gemini-2.0-flash-exp
 - gemini-1.5-pro
 - gemini-1.5-flash
 
-**OpenRouter**:
+**OpenRouter** (disabled by default, uncomment in code):
 - anthropic/claude-3.5-sonnet
 - openai/gpt-4o
 - google/gemini-2.0-flash-exp
@@ -183,6 +195,44 @@ The application automatically discovers tools from all configured MCP servers an
 4. The conversation continues with the tool result
 
 **Note**: Some Ollama models (like DeepSeek) don't support tool calling. The application will automatically retry without tools for these models.
+
+### QA Agent
+
+The QA Agent validates model responses and can automatically request clarification when responses lack concrete data. This is useful for ensuring data queries actually return data rather than explanations.
+
+**Configuration:**
+```bash
+QA_AGENT_ENABLED=true
+QA_AGENT_MODEL=gpt-oss:latest
+QA_AGENT_MAX_RETRIES=1
+```
+
+**How it works:**
+1. After the primary model responds, the QA Agent analyzes the response
+2. If the response lacks concrete data (numbers, tables, actual values), it triggers a follow-up
+3. The follow-up uses the configured QA model to request specific data
+4. The additional response is appended to the conversation
+
+## UI Features
+
+### Statistics Bar
+Located below the input area, shows real-time query statistics:
+- **Status**: Current state (Idle, Thinking, Streaming, Done)
+- **Time**: Total elapsed time
+- **TTFT**: Time to first token
+- **Tokens**: Number of tokens generated
+- **Speed**: Tokens per second
+
+### Activity Log
+Located in the sidebar, shows step-by-step progress:
+- 🚀 Query started
+- 🔌 Connecting to model
+- 🧠 Model thinking/reasoning
+- 📡 Streaming response
+- 🔧 Tool calls
+- ✅ Tool results
+- 🔍 QA Agent actions
+- ✓ Completion with stats
 
 ## Docker Details
 

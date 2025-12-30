@@ -2,22 +2,41 @@ from flask import Flask, render_template, request, jsonify, Response
 import json
 import os
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Generator, Optional, Dict, Any, List
 import anthropic
 import google.generativeai as genai
 from openai import OpenAI
 from dotenv import load_dotenv
-import uuid
 import threading
 import time
-from queue import Queue, Empty
 from dataclasses import dataclass
-from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
 
+# Create HTTP session with connection pooling and retry logic
+http_session = requests.Session()
+# Only retry on network/gateway errors, not 500 (Ollama model crashes shouldn't retry)
+retry_strategy = Retry(
+    total=3,
+    backoff_factor=0.5,
+    status_forcelist=[502, 503, 504],  # Removed 500
+    raise_on_status=False  # Don't raise exception on status codes
+)
+adapter = HTTPAdapter(
+    max_retries=retry_strategy,
+    pool_connections=10,
+    pool_maxsize=20
+)
+http_session.mount("http://", adapter)
+http_session.mount("https://", adapter)
+
 app = Flask(__name__)
+
+# MCP session warming flag
+mcp_sessions_warmed = False
 
 # MCP Session management
 @dataclass
@@ -32,7 +51,8 @@ class MCPSession:
     
 mcp_session_lock = threading.Lock()
 mcp_active_sessions: Dict[str, MCPSession] = {}  # server_name -> session
-mcp_tools_cache = {'tools': [], 'timestamp': 0}
+mcp_tools_cache = {'tools': {}, 'timestamp': {}}  # Enhanced tool cache with per-server TTL
+TOOL_CACHE_TTL = 600  # 10 minutes
 
 # Environment variables for API keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
@@ -40,7 +60,13 @@ ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+OLLAMA_KEEP_ALIVE = os.getenv('OLLAMA_KEEP_ALIVE', '1h')  # Default: 1 hour to prevent unload during dialogues
 SYSTEM_PROMPT = os.getenv('SYSTEM_PROMPT', 'You are a helpful AI assistant.')
+
+# QA Agent configuration
+QA_AGENT_ENABLED = os.getenv('QA_AGENT_ENABLED', 'false').lower() == 'true'
+QA_AGENT_MODEL = os.getenv('QA_AGENT_MODEL', 'gpt-oss:latest')
+QA_AGENT_MAX_RETRIES = int(os.getenv('QA_AGENT_MAX_RETRIES', '1'))
 
 # Legacy single MCP server (for backward compatibility)
 MCP_SERVER_URL = os.getenv('MCP_SERVER_URL', '')
@@ -73,8 +99,51 @@ except Exception as e:
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
 
+def get_mcp_tools_cached(server_name: str) -> List[Dict[str, Any]]:
+    """Get MCP tools with caching to avoid redundant lookups"""
+    global mcp_tools_cache
+
+    now = time.time()
+
+    # Check if we have a valid cached version
+    if (server_name in mcp_tools_cache['tools'] and
+        server_name in mcp_tools_cache['timestamp'] and
+        now - mcp_tools_cache['timestamp'][server_name] < TOOL_CACHE_TTL):
+        print(f"[MCP] Using cached tools for {server_name} ({len(mcp_tools_cache['tools'][server_name])} tools)")
+        return mcp_tools_cache['tools'][server_name]
+
+    # Cache miss - fetch from session
+    session = get_or_create_mcp_session(server_name)
+    if session and session.tools:
+        mcp_tools_cache['tools'][server_name] = session.tools
+        mcp_tools_cache['timestamp'][server_name] = now
+        print(f"[MCP] Cached {len(session.tools)} tools for {server_name}")
+        return session.tools
+
+    return []
+
+def warm_mcp_sessions():
+    """Pre-initialize MCP sessions on startup to reduce first-request latency"""
+    global mcp_sessions_warmed
+    if mcp_sessions_warmed or not MCP_SERVERS:
+        return
+
+    print(f"[MCP] Pre-warming sessions for {len(MCP_SERVERS)} servers...")
+    for server_name in MCP_SERVERS.keys():
+        try:
+            get_or_create_mcp_session(server_name)
+            print(f"[MCP] Pre-warmed session for {server_name}")
+        except Exception as e:
+            print(f"[MCP] Failed to pre-warm {server_name}: {e}")
+
+    mcp_sessions_warmed = True
+    print(f"[MCP] Session pre-warming complete")
+
 @app.route('/')
 def index():
+    # Warm MCP sessions on first request (lazy initialization)
+    if not mcp_sessions_warmed and MCP_SERVERS:
+        threading.Thread(target=warm_mcp_sessions, daemon=True).start()
     return render_template('index.html')
 
 @app.route('/api/system-prompt', methods=['GET'])
@@ -89,7 +158,7 @@ def get_providers():
     # Ollama falls back to CPU-only despite GPU available (96GB VRAM unused)
     # CPU inference works fine with 32GB RAM - medium models supported
     providers = {
-        'ollama': {'name': 'Ollama', 'models': ['qwen3:32b','deepseek-coder:33b','llama3:latest','gemma3:12b','phi3:14b','qwen3:8b','granite4:latest','llama3.2:latest']},
+        'ollama': {'name': 'Ollama', 'models': ['MichelRosselli/GLM-4.5-Air:latest','MichelRosselli/minimax-m2:iq1_m','llama4:latest','qwen3-next:latest','deepseek-coder:33b','llama3:latest','gemma3:12b','phi3:14b','qwen3:8b','granite4:latest','llama3.2:latest']},
         #'openai': {'name': 'OpenAI', 'models': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']},
         #'claude': {'name': 'Claude', 'models': ['claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929', 'claude-opus-4-1-20250805', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-7-sonnet-20250219', 'claude-3-5-haiku-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229']},
         'claude': {'name': 'Claude', 'models': ['claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929']},
@@ -125,7 +194,7 @@ def mcp_status():
                 headers['Authorization'] = f'Bearer {auth_token}'
             
             # Try to establish SSE connection
-            response = requests.get(server_config['url'], headers=headers, timeout=3, stream=True)
+            response = http_session.get(server_config['url'], headers=headers, timeout=3, stream=True)
             
             # Status 200 or 400 with mcp-session-id means server is accessible
             # 400 is expected without proper JSON-RPC initialization
@@ -252,29 +321,141 @@ Example workflow:
     
     return Response(generate(), mimetype='text/event-stream')
 
+
+# QA Agent for validating responses
+def qa_validate_response(user_question: str, assistant_response: str) -> dict:
+    """
+    Validate if the assistant's response adequately answers the user's question.
+    Returns a dict with 'valid' boolean and 'follow_up' question if needed.
+    """
+    user_lower = user_question.lower()
+    response_lower = assistant_response.lower()
+    
+    # Keywords that suggest user is asking for device/data information
+    data_request_keywords = [
+        'device', 'devices', 'sensor', 'sensors', 'data', 'reading', 'readings',
+        'temperature', 'humidity', 'pressure', 'status', 'value', 'values',
+        'list', 'show', 'get', 'fetch', 'retrieve', 'what are', 'what is',
+        'how many', 'display', 'report', 'current', 'latest', 'all'
+    ]
+    
+    # Check if user is asking for data
+    is_data_request = any(keyword in user_lower for keyword in data_request_keywords)
+    
+    if not is_data_request:
+        return {'valid': True, 'reason': 'Not a data request', 'follow_up': None}
+    
+    # Indicators that response contains actual data
+    data_indicators = [
+        # Numeric patterns (values, readings)
+        any(char.isdigit() for char in assistant_response),
+        # Common data formats
+        '°c' in response_lower or '°f' in response_lower,
+        '%' in assistant_response,
+        'id:' in response_lower or 'id :' in response_lower,
+        # Table-like structures
+        '|' in assistant_response,
+        # JSON-like structures
+        '{' in assistant_response and '}' in assistant_response,
+        # List indicators
+        '- ' in assistant_response or '• ' in assistant_response,
+        # Named values
+        ':' in assistant_response and any(char.isdigit() for char in assistant_response),
+    ]
+    
+    # Phrases that indicate inability or lack of data
+    no_data_phrases = [
+        "i don't have access",
+        "i cannot access",
+        "i'm not able to",
+        "i am not able to",
+        "no data available",
+        "unable to retrieve",
+        "cannot retrieve",
+        "don't have information",
+        "no information available",
+        "i would need",
+        "you would need to",
+        "please provide",
+        "could you specify",
+        "i'm sorry, but i",
+        "i apologize",
+        "unfortunately",
+        "i cannot directly",
+    ]
+    
+    has_data = sum(data_indicators) >= 2  # At least 2 indicators of actual data
+    has_no_data_phrase = any(phrase in response_lower for phrase in no_data_phrases)
+    
+    # Short responses are suspicious for data requests
+    is_too_short = len(assistant_response.strip()) < 100
+    
+    if has_no_data_phrase or (is_too_short and not has_data):
+        # Generate a follow-up question based on what was asked
+        follow_up = generate_follow_up_question(user_question)
+        return {
+            'valid': False,
+            'reason': 'Response lacks concrete data',
+            'follow_up': follow_up
+        }
+    
+    if has_data:
+        return {'valid': True, 'reason': 'Response contains data', 'follow_up': None}
+    
+    # Default: if unsure, ask for clarification
+    follow_up = generate_follow_up_question(user_question)
+    return {
+        'valid': False,
+        'reason': 'Uncertain if response contains requested data',
+        'follow_up': follow_up
+    }
+
+
+def generate_follow_up_question(original_question: str) -> str:
+    """Generate a follow-up question to get actual data."""
+    original_lower = original_question.lower()
+    
+    # Specific follow-ups based on question type
+    if 'device' in original_lower or 'sensor' in original_lower:
+        return "Please use the available tools to actually retrieve and list the device/sensor data. Show me the actual readings with their values."
+    
+    if 'temperature' in original_lower:
+        return "Please use the tools to fetch the actual temperature readings and display them with their values."
+    
+    if 'status' in original_lower:
+        return "Please retrieve the actual status information using the available tools and show me the current state."
+    
+    if 'list' in original_lower or 'show' in original_lower or 'get' in original_lower:
+        return "Please use the available tools to retrieve and display the actual data I requested, showing real values."
+    
+    # Generic follow-up
+    return f"I need the actual data, not a description. Please use the available tools to retrieve and show the specific information for: {original_question}"
+
+
 def stream_ollama(messages, model):
     """Stream responses from Ollama with tool calling support"""
-    # Get MCP tools from all servers
+    # Get MCP tools from all servers (with caching)
     all_tools = []
     server_tool_map = {}  # tool_name -> server_name
-    
+
     for server_name in MCP_SERVERS.keys():
-        session = get_or_create_mcp_session(server_name)
-        if session and session.tools:
-            for tool in session.tools:
+        tools = get_mcp_tools_cached(server_name)
+        if tools:
+            for tool in tools:
                 server_tool_map[tool['name']] = server_name
-            all_tools.extend(session.tools)
+            all_tools.extend(tools)
     
     payload = {
-        'model': model, 
-        'messages': messages, 
+        'model': model,
+        'messages': messages,
         'stream': True,
-        'keep_alive': '5m',  # Unload model after 5 minutes of inactivity
+        'keep_alive': OLLAMA_KEEP_ALIVE,  # Keep model loaded during dialogues (configurable via env)
         'options': {
             'num_predict': -1,  # Allow unlimited generation
             'temperature': 0.7,  # Balanced creativity
         }
     }
+    tools = None  # Initialize tools variable
     if all_tools:
         tools = convert_mcp_tools_to_openai(all_tools)
         payload['tools'] = tools
@@ -283,16 +464,24 @@ def stream_ollama(messages, model):
         payload['options']['num_ctx'] = 8192  # Larger context for tool use
     
     print(f"[Ollama] Connecting to {OLLAMA_BASE_URL}/api/chat")
+    print(f"[Ollama] Model: {model}, this may take a while for thinking models...")
+    
+    # Send initial status to frontend
+    yield f"data: {json.dumps({'status': 'connecting', 'message': f'Connecting to {model}...'})}\n\n"
+    
+    request_start = time.time()
     
     try:
-        response = requests.post(
+        response = http_session.post(
             f'{OLLAMA_BASE_URL}/api/chat',
             json=payload,
             stream=True,
-            timeout=300
+            timeout=(60, 600)  # 60s connect timeout, 600s read timeout for thinking models
         )
         
-        print(f"[Ollama] Response status: {response.status_code}")
+        connect_time = time.time() - request_start
+        print(f"[Ollama] Response status: {response.status_code} (connected in {connect_time:.1f}s)")
+        yield f"data: {json.dumps({'status': 'connected', 'message': f'Connected in {connect_time:.1f}s, waiting for response...'})}\n\n"
         
         if response.status_code != 200:
             error_body = response.text
@@ -303,11 +492,11 @@ def stream_ollama(messages, model):
             if response.status_code == 400 and 'tool' in error_body.lower() and all_tools:
                 print(f"[Ollama] Tool error detected, retrying without tools")
                 payload.pop('tools', None)
-                response = requests.post(
+                response = http_session.post(
                     f'{OLLAMA_BASE_URL}/api/chat',
                     json=payload,
                     stream=True,
-                    timeout=300
+                    timeout=(60, 600)  # 60s connect timeout, 600s read timeout
                 )
                 print(f"[Ollama] Retry response status: {response.status_code}")
                 if response.status_code != 200:
@@ -325,10 +514,50 @@ def stream_ollama(messages, model):
     
     tool_calls_made = []
     line_count = 0
+    last_activity = time.time()
+    first_token_time = None
+    total_tokens = 0
+    total_chars = 0
+    full_response = ""  # Collect full response for QA validation
+    qa_retry_count = 0
+    
+    # Extract the original user question for QA validation
+    original_user_question = ""
+    for msg in reversed(messages):
+        if msg.get('role') == 'user':
+            original_user_question = msg.get('content', '')
+            break
+    
+    print(f"[Ollama] Starting to read response stream...")
+    if QA_AGENT_ENABLED:
+        print(f"[Ollama] QA Agent enabled using model: {QA_AGENT_MODEL}")
+    yield f"data: {json.dumps({'status': 'thinking', 'message': f'{model} is thinking...'})}\n\n"
     
     for line in response.iter_lines():
+        # Log time since last activity for debugging slow models
+        now = time.time()
+        elapsed = now - last_activity
+        
+        # Send periodic updates if waiting a long time (thinking models)
+        if elapsed > 5 and first_token_time is None:
+            wait_total = now - request_start
+            print(f"[Ollama] Still waiting for first token... ({wait_total:.0f}s elapsed)")
+            yield f"data: {json.dumps({'status': 'thinking', 'message': f'Model is reasoning... ({wait_total:.0f}s)'})}\n\n"
+        
+        if elapsed > 10:
+            print(f"[Ollama] Received data after {elapsed:.1f}s pause")
+        last_activity = now
+        
         if line:
             line_count += 1
+            
+            # Track first token time
+            if first_token_time is None:
+                first_token_time = now
+                ttft = first_token_time - request_start
+                print(f"[Ollama] First token received in {ttft:.1f}s")
+                yield f"data: {json.dumps({'status': 'streaming', 'message': f'First token in {ttft:.1f}s'})}\n\n"
+            
             try:
                 data = json.loads(line)
             except json.JSONDecodeError as e:
@@ -339,6 +568,9 @@ def stream_ollama(messages, model):
                 msg = data['message']
                 content = msg.get('content', '')
                 if content:
+                    total_tokens += 1
+                    total_chars += len(content)
+                    full_response += content  # Collect for QA
                     yield f"data: {json.dumps({'content': content})}\n\n"
                 
                 # Handle tool calls (Ollama uses OpenAI-compatible format)
@@ -379,11 +611,25 @@ def stream_ollama(messages, model):
                     
                     # Continue conversation with tool results
                     messages.extend(tool_results)
-                    continue_payload = {'model': model, 'messages': messages, 'stream': True}
+
+                    # Solution F: Add explicit continuation prompt for all Ollama models
+                    # Many Ollama models need explicit instruction to synthesize and present tool results
+                    messages.append({
+                        'role': 'user',
+                        'content': 'Now present these tool results to answer my original question. Include the actual data values in your response.'
+                    })
+                    print(f"[Ollama] Added continuation prompt to synthesize tool results")
+
+                    continue_payload = {
+                        'model': model,
+                        'messages': messages,
+                        'stream': True,
+                        'keep_alive': OLLAMA_KEEP_ALIVE  # CRITICAL: Prevent immediate model unload after tool execution
+                    }
                     if tools:
                         continue_payload['tools'] = tools
                     
-                    continue_response = requests.post(
+                    continue_response = http_session.post(
                         f'{OLLAMA_BASE_URL}/api/chat',
                         json=continue_payload,
                         stream=True
@@ -399,9 +645,99 @@ def stream_ollama(messages, model):
                             if cont_data.get('done', False):
                                 break
                 
-                # Always send done signal at the end
-                yield f"data: {json.dumps({'done': True})}\n\n"
-                print(f"[Ollama] Stream complete. Lines processed: {line_count}")
+                # QA Agent: Validate response before finishing
+                if QA_AGENT_ENABLED and original_user_question and qa_retry_count < QA_AGENT_MAX_RETRIES:
+                    qa_result = qa_validate_response(original_user_question, full_response)
+                    print(f"[QA Agent] Validation result: {qa_result['reason']}")
+                    
+                    if not qa_result['valid'] and qa_result['follow_up']:
+                        qa_retry_count += 1
+                        print(f"[QA Agent] Response validation failed. Sending follow-up using {QA_AGENT_MODEL} (attempt {qa_retry_count}/{QA_AGENT_MAX_RETRIES})")
+                        print(f"[QA Agent] Follow-up: {qa_result['follow_up']}")
+                        
+                        # Notify frontend about QA retry
+                        qa_status_msg = f'QA Agent ({QA_AGENT_MODEL}): Requesting more specific data...'
+                        qa_content_msg = f'\n\n---\n**[QA Agent using {QA_AGENT_MODEL}]** The response lacks specific data. Requesting clarification...\n\n'
+                        yield "data: " + json.dumps({'status': 'qa_retry', 'message': qa_status_msg}) + "\n\n"
+                        yield "data: " + json.dumps({'content': qa_content_msg}) + "\n\n"
+                        
+                        # Add the assistant's response and follow-up to messages
+                        qa_messages = messages.copy()
+                        qa_messages.append({'role': 'assistant', 'content': full_response})
+                        qa_messages.append({'role': 'user', 'content': qa_result['follow_up']})
+                        
+                        # Make another request using the QA Agent model
+                        retry_payload = {
+                            'model': QA_AGENT_MODEL,  # Use configurable QA model
+                            'messages': qa_messages,
+                            'stream': True,
+                            'keep_alive': OLLAMA_KEEP_ALIVE,
+                            'options': {'num_predict': -1, 'temperature': 0.7}
+                        }
+                        if all_tools:
+                            retry_payload['tools'] = tools
+                        
+                        print(f"[QA Agent] Sending request to {QA_AGENT_MODEL}...")
+                        retry_response = http_session.post(
+                            f'{OLLAMA_BASE_URL}/api/chat',
+                            json=retry_payload,
+                            stream=True,
+                            timeout=(60, 600)
+                        )
+                        
+                        if retry_response.status_code == 200:
+                            print(f"[QA Agent] {QA_AGENT_MODEL} responding...")
+                            for retry_line in retry_response.iter_lines():
+                                if retry_line:
+                                    try:
+                                        retry_data = json.loads(retry_line)
+                                        if 'message' in retry_data:
+                                            retry_content = retry_data['message'].get('content', '')
+                                            if retry_content:
+                                                total_tokens += 1
+                                                total_chars += len(retry_content)
+                                                full_response += retry_content
+                                                yield f"data: {json.dumps({'content': retry_content})}\n\n"
+                                        if retry_data.get('done', False):
+                                            break
+                                    except json.JSONDecodeError:
+                                        continue
+                        else:
+                            print(f"[QA Agent] Error: {QA_AGENT_MODEL} returned status {retry_response.status_code}")
+                
+                # Calculate final statistics
+                end_time = time.time()
+                total_time = end_time - request_start
+                ttft = first_token_time - request_start if first_token_time else total_time
+                generation_time = end_time - first_token_time if first_token_time else 0
+                tokens_per_sec = total_tokens / generation_time if generation_time > 0 else 0
+                chars_per_sec = total_chars / generation_time if generation_time > 0 else 0
+                
+                # Log comprehensive statistics
+                print(f"\n{'='*60}")
+                print(f"[Ollama] === Query Statistics for {model} ===")
+                print(f"[Ollama] Total time:        {total_time:.2f}s")
+                print(f"[Ollama] Time to first token: {ttft:.2f}s")
+                print(f"[Ollama] Generation time:   {generation_time:.2f}s")
+                print(f"[Ollama] Total tokens:      {total_tokens}")
+                print(f"[Ollama] Total characters:  {total_chars}")
+                print(f"[Ollama] Speed:             {tokens_per_sec:.2f} tokens/s, {chars_per_sec:.1f} chars/s")
+                print(f"[Ollama] Lines processed:   {line_count}")
+                print(f"{'='*60}\n")
+                
+                # Send stats to frontend
+                stats = {
+                    'done': True,
+                    'stats': {
+                        'total_time': round(total_time, 2),
+                        'ttft': round(ttft, 2),
+                        'generation_time': round(generation_time, 2),
+                        'tokens': total_tokens,
+                        'chars': total_chars,
+                        'tokens_per_sec': round(tokens_per_sec, 2)
+                    }
+                }
+                yield f"data: {json.dumps(stats)}\n\n"
                 break
     
     # Ensure done signal is sent even if loop exits unexpectedly
@@ -410,17 +746,17 @@ def stream_ollama(messages, model):
 def stream_openai(messages, model):
     """Stream responses from OpenAI with tool calling support"""
     client = OpenAI(api_key=OPENAI_API_KEY)
-    
-    # Get MCP tools from all servers
+
+    # Get MCP tools from all servers (with caching)
     all_tools = []
     server_tool_map = {}  # tool_name -> server_name
-    
+
     for server_name in MCP_SERVERS.keys():
-        session = get_or_create_mcp_session(server_name)
-        if session and session.tools:
-            for tool in session.tools:
+        tools = get_mcp_tools_cached(server_name)
+        if tools:
+            for tool in tools:
                 server_tool_map[tool['name']] = server_name
-            all_tools.extend(session.tools)
+            all_tools.extend(tools)
     
     tools = None
     if all_tools:
@@ -520,17 +856,17 @@ def stream_openai(messages, model):
 def stream_claude(messages, model):
     """Stream responses from Claude with tool calling support"""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    
-    # Get MCP tools from all servers
+
+    # Get MCP tools from all servers (with caching)
     all_tools = []
     server_tool_map = {}  # tool_name -> server_name
-    
+
     for server_name in MCP_SERVERS.keys():
-        session = get_or_create_mcp_session(server_name)
-        if session and session.tools:
-            for tool in session.tools:
+        tools = get_mcp_tools_cached(server_name)
+        if tools:
+            for tool in tools:
                 server_tool_map[tool['name']] = server_name
-            all_tools.extend(session.tools)
+            all_tools.extend(tools)
     
     tools = None
     if all_tools:
@@ -618,17 +954,17 @@ def stream_claude(messages, model):
 def stream_google(messages, model):
     """Stream responses from Google with tool calling support"""
     from google.generativeai.types import Tool
-    
-    # Get MCP tools from all servers
+
+    # Get MCP tools from all servers (with caching)
     all_tools = []
     server_tool_map = {}  # tool_name -> server_name
-    
+
     for server_name in MCP_SERVERS.keys():
-        session = get_or_create_mcp_session(server_name)
-        if session and session.tools:
-            for tool in session.tools:
+        tools = get_mcp_tools_cached(server_name)
+        if tools:
+            for tool in tools:
                 server_tool_map[tool['name']] = server_name
-            all_tools.extend(session.tools)
+            all_tools.extend(tools)
     
     tools_param = None
     if all_tools:
@@ -706,16 +1042,16 @@ def stream_google(messages, model):
 
 def stream_openrouter(messages, model):
     """Stream responses from OpenRouter with tool calling support"""
-    # Get MCP tools from all servers
+    # Get MCP tools from all servers (with caching)
     all_tools = []
     server_tool_map = {}  # tool_name -> server_name
-    
+
     for server_name in MCP_SERVERS.keys():
-        session = get_or_create_mcp_session(server_name)
-        if session and session.tools:
-            for tool in session.tools:
+        tools = get_mcp_tools_cached(server_name)
+        if tools:
+            for tool in tools:
                 server_tool_map[tool['name']] = server_name
-            all_tools.extend(session.tools)
+            all_tools.extend(tools)
     
     tools = None
     payload = {'model': model, 'messages': messages, 'stream': True}
@@ -725,7 +1061,7 @@ def stream_openrouter(messages, model):
         payload['tool_choice'] = 'auto'
         print(f"[OpenRouter] Publishing {len(tools)} tools to model {model}: {[t['function']['name'] for t in tools]}")
     
-    response = requests.post(
+    response = http_session.post(
         'https://openrouter.ai/api/v1/chat/completions',
         headers={
             'Authorization': f'Bearer {OPENROUTER_API_KEY}',
@@ -794,15 +1130,6 @@ def stream_openrouter(messages, model):
                 except json.JSONDecodeError:
                     pass
 
-def parse_sse_message(line: str) -> Optional[Dict[str, Any]]:
-    """Parse SSE message line"""
-    if line.startswith('data: '):
-        try:
-            return json.loads(line[6:])
-        except:
-            return None
-    return None
-
 def send_jsonrpc_request(server_url: str, auth_token: str, session_id: str, method: str, params: Dict[str, Any], request_id: int = None) -> Optional[Dict[str, Any]]:
     """Send a JSON-RPC request to MCP server and get response"""
     if request_id is None:
@@ -825,7 +1152,7 @@ def send_jsonrpc_request(server_url: str, auth_token: str, session_id: str, meth
     }
     
     try:
-        response = requests.post(
+        response = http_session.post(
             server_url,
             headers=headers,
             json=request_body,
@@ -865,7 +1192,7 @@ def initialize_mcp_session(server_name: str, server_config: Dict[str, Any]) -> O
             headers['Authorization'] = f'Bearer {auth_token}'
         
         # Establish SSE connection to get session ID
-        response = requests.get(
+        response = http_session.get(
             server_url,
             headers=headers,
             stream=True,
@@ -930,7 +1257,7 @@ def initialize_mcp_session(server_name: str, server_config: Dict[str, Any]) -> O
                 "params": {}
             }
             
-            requests.post(server_url, headers=headers, json=notification_body, timeout=5)
+            http_session.post(server_url, headers=headers, json=notification_body, timeout=5)
         except Exception as e:
             print(f"MCP [{server_name}] notification error (non-critical): {e}")
         
@@ -973,16 +1300,16 @@ def initialize_mcp_session(server_name: str, server_config: Dict[str, Any]) -> O
 def get_or_create_mcp_session(server_name: str) -> Optional[MCPSession]:
     """Get active MCP session for a server or create new one"""
     global mcp_active_sessions
-    
+
     if server_name not in MCP_SERVERS:
         print(f"MCP server '{server_name}' not configured")
         return None
-    
+
     with mcp_session_lock:
-        # Check if session exists and is recent (< 5 minutes old)
+        # Check if session exists and is recent (< 15 minutes old)
         if server_name in mcp_active_sessions:
             session = mcp_active_sessions[server_name]
-            if time.time() - session.created_at < 300:
+            if time.time() - session.created_at < 900:
                 return session
             
             # Close old session
@@ -1113,7 +1440,7 @@ def mcp_call():
         }
         if MCP_AUTH_TOKEN:
             headers['Authorization'] = f'Bearer {MCP_AUTH_TOKEN}'
-        response = requests.post(
+        response = http_session.post(
             f'{MCP_SERVER_URL}/call',
             json={'tool': tool_name, 'arguments': arguments},
             headers=headers,

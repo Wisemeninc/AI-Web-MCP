@@ -278,6 +278,68 @@
             flex: 1;
         }
 
+        .activity-log {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 11px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 8px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            border-left: 3px solid #444;
+        }
+
+        .activity-item.connecting { border-left-color: #2196F3; }
+        .activity-item.thinking { border-left-color: #FF9800; }
+        .activity-item.streaming { border-left-color: #4CAF50; }
+        .activity-item.tool { border-left-color: #9C27B0; }
+        .activity-item.qa { border-left-color: #E91E63; }
+        .activity-item.done { border-left-color: #4CAF50; }
+        .activity-item.error { border-left-color: #f44336; }
+
+        .activity-icon {
+            flex-shrink: 0;
+            width: 16px;
+            text-align: center;
+        }
+
+        .activity-content {
+            flex: 1;
+            color: #bbb;
+            line-height: 1.4;
+        }
+
+        .activity-time {
+            flex-shrink: 0;
+            color: #666;
+            font-size: 10px;
+        }
+
+        .activity-item.active .activity-icon {
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .clear-log-btn {
+            background: transparent;
+            border: none;
+            color: #666;
+            font-size: 10px;
+            cursor: pointer;
+            padding: 2px 6px;
+        }
+
+        .clear-log-btn:hover {
+            color: #999;
+        }
+
         .sidebar-header {
             padding: 10px 15px;
             background: #222;
@@ -487,6 +549,95 @@
             }
         }
 
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .stats-bar {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-top: 1px solid #333;
+            padding: 8px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: #888;
+            min-height: 32px;
+        }
+
+        .stats-bar.active {
+            color: #aaa;
+        }
+
+        .stats-left, .stats-right {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-item .stat-icon {
+            font-size: 12px;
+        }
+
+        .stat-item .stat-label {
+            color: #666;
+        }
+
+        .stat-item .stat-value {
+            color: #4CAF50;
+            font-weight: 500;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .stat-item.streaming .stat-value {
+            color: #ff9800;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .stat-item.waiting .stat-value {
+            color: #2196F3;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .stats-status {
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 500;
+        }
+
+        .stats-status.idle {
+            background: #333;
+            color: #666;
+        }
+
+        .stats-status.thinking {
+            background: #1565C0;
+            color: #fff;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .stats-status.streaming {
+            background: #E65100;
+            color: #fff;
+        }
+
+        .stats-status.done {
+            background: #2E7D32;
+            color: #fff;
+        }
+
         .empty-state {
             flex: 1;
             display: flex;
@@ -556,6 +707,37 @@
         <button id="send-button" disabled>Send</button>
     </div>
 
+    <div class="stats-bar" id="stats-bar">
+        <div class="stats-left">
+            <div class="stat-item" id="stat-status-container">
+                <span class="stats-status idle" id="stats-status">Idle</span>
+            </div>
+            <div class="stat-item" id="stat-time-container" style="display: none;">
+                <span class="stat-icon">⏱️</span>
+                <span class="stat-label">Time:</span>
+                <span class="stat-value" id="stat-time">0.0s</span>
+            </div>
+            <div class="stat-item" id="stat-ttft-container" style="display: none;">
+                <span class="stat-icon">🚀</span>
+                <span class="stat-label">TTFT:</span>
+                <span class="stat-value" id="stat-ttft">-</span>
+            </div>
+        </div>
+        <div class="stats-right">
+            <div class="stat-item" id="stat-tokens-container" style="display: none;">
+                <span class="stat-icon">📝</span>
+                <span class="stat-label">Tokens:</span>
+                <span class="stat-value" id="stat-tokens">0</span>
+            </div>
+            <div class="stat-item" id="stat-speed-container" style="display: none;">
+                <span class="stat-icon">🔥</span>
+                <span class="stat-label">Speed:</span>
+                <span class="stat-value" id="stat-speed">0</span>
+                <span class="stat-label">tok/s</span>
+            </div>
+        </div>
+    </div>
+
     <div class="sidebar" id="sidebar">
         <div class="sidebar-section">
             <div class="sidebar-header">
@@ -578,6 +760,20 @@
                 </div>
             </div>
         </div>
+        
+        <div class="sidebar-section">
+            <div class="sidebar-header">
+                <span>Activity Log</span>
+                <button class="clear-log-btn" id="clear-activity-log">Clear</button>
+            </div>
+            <div class="sidebar-content">
+                <div class="activity-log" id="activity-log">
+                    <div class="activity-item" style="color: #666; text-align: center;">
+                        <span class="activity-content">No activity yet</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -590,6 +786,25 @@
         let historyIndex = -1;
         let systemPrompt = 'You are a helpful AI assistant.';
         let userPrompt = '';
+
+        // Message history management
+        const MAX_MESSAGE_HISTORY = 50;  // Keep last 50 messages
+
+        function pruneMessageHistory() {
+            if (messages.length > MAX_MESSAGE_HISTORY) {
+                // Keep system message + last N messages
+                const systemMsg = messages.find(m => m.role === 'system');
+                const recentMessages = messages.slice(-MAX_MESSAGE_HISTORY);
+                messages = systemMsg ? [systemMsg, ...recentMessages.filter(m => m.role !== 'system')] : recentMessages;
+                console.log(`[Memory] Pruned message history to ${messages.length} messages`);
+            }
+        }
+
+        // Statistics tracking
+        let statsStartTime = null;
+        let statsTimer = null;
+        let currentStats = { tokens: 0, ttft: null };
+        let lastSpeedUpdate = 0;  // Track last speed calculation
 
         // Elements
         const providerSelect = document.getElementById('provider-select');
@@ -606,6 +821,172 @@
         const clearUserPromptBtn = document.getElementById('clear-user-prompt');
         const toggleSidebarBtn = document.getElementById('toggle-sidebar');
         const sidebar = document.getElementById('sidebar');
+        const activityLog = document.getElementById('activity-log');
+        const clearActivityLogBtn = document.getElementById('clear-activity-log');
+
+        // Statistics elements
+        const statsBar = document.getElementById('stats-bar');
+        const statsStatus = document.getElementById('stats-status');
+        const statTimeContainer = document.getElementById('stat-time-container');
+        const statTime = document.getElementById('stat-time');
+        const statTtftContainer = document.getElementById('stat-ttft-container');
+        const statTtft = document.getElementById('stat-ttft');
+        const statTokensContainer = document.getElementById('stat-tokens-container');
+        const statTokens = document.getElementById('stat-tokens');
+        const statSpeedContainer = document.getElementById('stat-speed-container');
+        const statSpeed = document.getElementById('stat-speed');
+
+        // Statistics functions
+        function resetStats() {
+            statsStartTime = null;
+            currentStats = { tokens: 0, ttft: null };
+            if (statsTimer) {
+                clearInterval(statsTimer);
+                statsTimer = null;
+            }
+        }
+
+        // Activity Log functions
+        let activityStartTime = null;
+        
+        function clearActivityLog() {
+            activityLog.innerHTML = '<div class="activity-item" style="color: #666; text-align: center;"><span class="activity-content">No activity yet</span></div>';
+        }
+        
+        function addActivityItem(type, message, icon = null) {
+            // Remove "no activity" placeholder
+            const placeholder = activityLog.querySelector('.activity-item[style]');
+            if (placeholder) placeholder.remove();
+            
+            // Remove active class from previous items
+            activityLog.querySelectorAll('.activity-item.active').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            const icons = {
+                'connecting': '🔌',
+                'thinking': '🧠',
+                'streaming': '📡',
+                'tool': '🔧',
+                'tool_result': '✅',
+                'qa': '🔍',
+                'done': '✓',
+                'error': '❌',
+                'info': 'ℹ️'
+            };
+            
+            const elapsed = activityStartTime ? ((Date.now() - activityStartTime) / 1000).toFixed(1) + 's' : '';
+            
+            const item = document.createElement('div');
+            item.className = `activity-item ${type}`;
+            if (type !== 'done' && type !== 'error') {
+                item.classList.add('active');
+            }
+            
+            item.innerHTML = `
+                <span class="activity-icon">${icon || icons[type] || '•'}</span>
+                <span class="activity-content">${message}</span>
+                <span class="activity-time">${elapsed}</span>
+            `;
+            
+            activityLog.appendChild(item);
+            activityLog.scrollTop = activityLog.scrollHeight;
+        }
+        
+        function startActivityLog(model) {
+            clearActivityLog();
+            activityStartTime = Date.now();
+            addActivityItem('info', `Starting query with ${model}`, '🚀');
+        }
+        
+        // Clear activity log button
+        clearActivityLogBtn.addEventListener('click', clearActivityLog);
+
+        function startStats() {
+            resetStats();
+            statsStartTime = Date.now();
+            currentStats.tokens = 0;
+            
+            // Show stats elements
+            statsBar.classList.add('active');
+            statTimeContainer.style.display = 'flex';
+            statTtftContainer.style.display = 'flex';
+            statTokensContainer.style.display = 'flex';
+            statSpeedContainer.style.display = 'flex';
+            
+            // Update status
+            statsStatus.className = 'stats-status thinking';
+            statsStatus.textContent = 'Thinking...';
+            statTtft.textContent = '-';
+            statTokens.textContent = '0';
+            statSpeed.textContent = '0';
+            
+            // Add waiting class for animation
+            statTimeContainer.classList.add('waiting');
+            statTimeContainer.classList.remove('streaming');
+            
+            // Start timer (500ms interval instead of 100ms - reduces CPU usage by 80%)
+            statsTimer = setInterval(updateStatsTimer, 500);
+        }
+
+        function updateStatsTimer() {
+            if (statsStartTime) {
+                const now = Date.now();
+                const elapsed = (now - statsStartTime) / 1000;
+                statTime.textContent = elapsed.toFixed(1) + 's';
+
+                // Update speed only every 1 second (not every tick)
+                if (now - lastSpeedUpdate > 1000 && currentStats.ttft !== null && currentStats.tokens > 0) {
+                    const genTime = elapsed - currentStats.ttft;
+                    if (genTime > 0) {
+                        const speed = currentStats.tokens / genTime;
+                        statSpeed.textContent = speed.toFixed(1);
+                        lastSpeedUpdate = now;
+                    }
+                }
+            }
+        }
+
+        function updateStatsTTFT(ttft) {
+            currentStats.ttft = ttft;
+            statTtft.textContent = ttft.toFixed(2) + 's';
+            statsStatus.className = 'stats-status streaming';
+            statsStatus.textContent = 'Streaming';
+            
+            // Switch to streaming animation
+            statTimeContainer.classList.remove('waiting');
+            statTimeContainer.classList.add('streaming');
+        }
+
+        function updateStatsTokens(count) {
+            currentStats.tokens = count;
+            statTokens.textContent = count;
+        }
+
+        function incrementStatsTokens() {
+            currentStats.tokens++;
+            statTokens.textContent = currentStats.tokens;
+        }
+
+        function finishStats(finalStats) {
+            if (statsTimer) {
+                clearInterval(statsTimer);
+                statsTimer = null;
+            }
+            
+            statsStatus.className = 'stats-status done';
+            statsStatus.textContent = 'Done';
+            
+            // Remove animations
+            statTimeContainer.classList.remove('waiting', 'streaming');
+            
+            if (finalStats) {
+                statTime.textContent = finalStats.total_time.toFixed(2) + 's';
+                statTtft.textContent = finalStats.ttft.toFixed(2) + 's';
+                statTokens.textContent = finalStats.tokens;
+                statSpeed.textContent = finalStats.tokens_per_sec.toFixed(1);
+            }
+        }
 
         // Load providers
         async function loadProviders() {
@@ -701,35 +1082,38 @@
 
         // Render message with collapsible thinking sections
         function renderMessageWithThinking(messageDiv, content) {
-            // Parse thinking/scratchpad tags
-            const thinkingRegex = /<(scratchpad|thinking)>([\s\S]*?)<\/(scratchpad|thinking)>/gi;
-            const answerRegex = /<answer>([\s\S]*?)<\/answer>/gi;
-            
-            let html = '';
-            let lastIndex = 0;
-            let match;
-            
-            // Find all thinking/scratchpad sections
-            const matches = [];
-            const regex = /<(scratchpad|thinking|answer)>([\s\S]*?)<\/(scratchpad|thinking|answer)>|([^<]+|<(?!\/?(scratchpad|thinking|answer)>))/gi;
-            
-            let processedContent = content;
-            
-            // Replace thinking/scratchpad tags with collapsible divs
-            processedContent = processedContent.replace(/<(scratchpad|thinking)>([\s\S]*?)<\/(scratchpad|thinking)>/gi, 
-                (match, tag, content) => {
+            let remainingContent = content;
+
+            // Process scratchpad/thinking sections - make them collapsible
+            remainingContent = remainingContent.replace(/<(scratchpad|thinking)>([\s\S]*?)<\/(scratchpad|thinking)>/gi,
+                (match, tag, thinkingContent) => {
                     const id = 'thinking-' + Math.random().toString(36).substr(2, 9);
                     return `<div class="thinking-section" onclick="document.getElementById('${id}').classList.toggle('collapsed')">
                         <div class="thinking-header"><span class="toggle-icon">▼</span> ${tag.charAt(0).toUpperCase() + tag.slice(1)}</div>
-                        <div class="thinking-content collapsed" id="${id}">${escapeHtml(content.trim())}</div>
+                        <div class="thinking-content collapsed" id="${id}">${escapeHtml(thinkingContent.trim())}</div>
                     </div>`;
                 }
             );
-            
-            // Remove answer tags but keep content
-            processedContent = processedContent.replace(/<\/?answer>/gi, '');
-            
-            messageDiv.innerHTML = processedContent;
+
+            // Remove answer tags but keep the content visible
+            remainingContent = remainingContent.replace(/<\/?answer>/gi, '');
+
+            // Escape HTML for safety, but preserve the collapsible divs we already created
+            // Split by thinking-section divs, escape the text parts, then recombine
+            const parts = remainingContent.split(/(<div class="thinking-section"[\s\S]*?<\/div><\/div>)/);
+            remainingContent = parts.map((part, index) => {
+                // Even indices are text content, odd indices are our generated divs
+                if (index % 2 === 0) {
+                    // This is text content - escape it and convert newlines
+                    return escapeHtml(part).replace(/\n/g, '<br>');
+                } else {
+                    // This is a thinking-section div - keep as is
+                    return part;
+                }
+            }).join('');
+
+            console.log('[Render] Content length:', remainingContent.length, 'Has answer content:', !content.includes('<answer>') || content.split('<\/answer>')[1]?.length > 0);
+            messageDiv.innerHTML = remainingContent;
         }
         
         // Escape HTML to prevent XSS
@@ -811,6 +1195,12 @@
             isStreaming = true;
             sendButton.disabled = true;
             
+            // Start statistics tracking
+            startStats();
+            
+            // Start activity log
+            startActivityLog(currentModel);
+            
             // Add to history
             messageHistory.push(content);
             historyIndex = messageHistory.length;
@@ -847,6 +1237,7 @@
                 let assistantMessage = '';
                 let messageDiv = null;
                 let streamDone = false;
+                let buffer = '';  // Buffer for incomplete lines
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -856,19 +1247,76 @@
                     }
 
                     const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n');
+                    buffer += chunk;
+                    const lines = buffer.split('\n');
+
+                    // Keep the last line in buffer if it doesn't end with \n
+                    buffer = lines.pop() || '';
 
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(line.slice(6));
                                 
+                                // Handle status messages (for slow/thinking models)
+                                if (data.status) {
+                                    console.log('Model status:', data.status, data.message);
+                                    // Update typing indicator with status message
+                                    const statusText = typingIndicator.querySelector('.status-text') || (() => {
+                                        const span = document.createElement('span');
+                                        span.className = 'status-text';
+                                        span.style.marginLeft = '8px';
+                                        span.style.fontSize = '0.85em';
+                                        span.style.opacity = '0.8';
+                                        typingIndicator.appendChild(span);
+                                        return span;
+                                    })();
+                                    statusText.textContent = data.message || '';
+                                    
+                                    // Update stats bar and activity log based on status
+                                    if (data.status === 'connecting') {
+                                        addActivityItem('connecting', data.message || 'Connecting to model...');
+                                    } else if (data.status === 'connected') {
+                                        statsStatus.className = 'stats-status thinking';
+                                        statsStatus.textContent = 'Connected';
+                                        addActivityItem('connecting', data.message || 'Connected');
+                                    } else if (data.status === 'thinking') {
+                                        typingIndicator.style.animation = 'pulse 2s ease-in-out infinite';
+                                        statsStatus.className = 'stats-status thinking';
+                                        statsStatus.textContent = 'Thinking...';
+                                        addActivityItem('thinking', data.message || 'Model is thinking...');
+                                    } else if (data.status === 'streaming') {
+                                        typingIndicator.style.animation = '';
+                                        // Extract TTFT from message if available
+                                        const ttftMatch = data.message && data.message.match(/([\d.]+)s/);
+                                        if (ttftMatch && currentStats.ttft === null) {
+                                            updateStatsTTFT(parseFloat(ttftMatch[1]));
+                                            addActivityItem('streaming', `First token received in ${ttftMatch[1]}s`);
+                                        }
+                                    } else if (data.status === 'qa_retry') {
+                                        // QA Agent is requesting more data
+                                        statsStatus.className = 'stats-status thinking';
+                                        statsStatus.textContent = 'QA Retry';
+                                        typingIndicator.style.animation = 'pulse 1s ease-in-out infinite';
+                                        console.log('%c🔍 QA Agent triggered follow-up request', 'color: #FF9800; font-weight: bold');
+                                        addActivityItem('qa', data.message || 'QA Agent requesting clarification...');
+                                    }
+                                }
+                                
                                 if (data.content) {
                                     if (!messageDiv) {
                                         typingIndicator.classList.remove('active');
                                         messageDiv = addMessage('assistant', '');
+                                        // First content received - update TTFT if not already set
+                                        if (currentStats.ttft === null && statsStartTime) {
+                                            updateStatsTTFT((Date.now() - statsStartTime) / 1000);
+                                            addActivityItem('streaming', 'Receiving response...');
+                                        }
                                     }
                                     assistantMessage += data.content;
+                                    
+                                    // Update token count in stats
+                                    incrementStatsTokens();
                                     
                                     // Process and render message with collapsible thinking sections
                                     renderMessageWithThinking(messageDiv, assistantMessage);
@@ -888,6 +1336,7 @@
                                     };
                                     chatContainer.appendChild(toolMsg);
                                     chatContainer.scrollTop = chatContainer.scrollHeight;
+                                    addActivityItem('tool', `Calling tool: ${data.tool_call}`);
                                 }
                                 
                                 if (data.tool_result) {
@@ -900,15 +1349,41 @@
                                     };
                                     chatContainer.appendChild(resultMsg);
                                     chatContainer.scrollTop = chatContainer.scrollHeight;
+                                    addActivityItem('tool_result', `Tool result: ${data.tool_result}`);
                                 }
                                 
                                 if (data.done) {
                                     streamDone = true;
+                                    // Log statistics if available and update stats bar
+                                    if (data.stats) {
+                                        const s = data.stats;
+                                        console.log('%c═══════════════════════════════════════════════════════════', 'color: #4CAF50');
+                                        console.log('%c📊 Query Statistics', 'color: #4CAF50; font-weight: bold; font-size: 14px');
+                                        console.log('%c═══════════════════════════════════════════════════════════', 'color: #4CAF50');
+                                        console.log(`⏱️  Total time:         ${s.total_time}s`);
+                                        console.log(`🚀 Time to first token: ${s.ttft}s`);
+                                        console.log(`⚡ Generation time:     ${s.generation_time}s`);
+                                        console.log(`📝 Total tokens:        ${s.tokens}`);
+                                        console.log(`📄 Total characters:    ${s.chars}`);
+                                        console.log(`🔥 Speed:               ${s.tokens_per_sec} tokens/s`);
+                                        console.log('%c═══════════════════════════════════════════════════════════', 'color: #4CAF50');
+                                        
+                                        // Update stats bar with final statistics
+                                        finishStats(s);
+                                        addActivityItem('done', `Complete: ${s.tokens} tokens in ${s.total_time}s (${s.tokens_per_sec} tok/s)`);
+                                    } else {
+                                        finishStats(null);
+                                        addActivityItem('done', 'Response complete');
+                                    }
                                 }
                                 
                                 if (data.error) {
                                     typingIndicator.classList.remove('active');
                                     addMessage('system', 'Error: ' + data.error);
+                                    finishStats(null);
+                                    statsStatus.className = 'stats-status idle';
+                                    statsStatus.textContent = 'Error';
+                                    addActivityItem('error', `Error: ${data.error}`);
                                 }
                             } catch (e) {
                                 console.error('Parse error:', e, 'Line:', line);
@@ -920,6 +1395,7 @@
                 // Always save the assistant message after stream ends
                 if (assistantMessage) {
                     messages.push({ role: 'assistant', content: assistantMessage });
+                    pruneMessageHistory();  // Prevent unbounded memory growth
                     console.log('Saved assistant message. Total length:', assistantMessage.length);
                 }
             } catch (error) {
@@ -978,7 +1454,7 @@
         loadProviders().then(() => {
             // Set default provider and model
             const defaultProvider = 'ollama';
-            const defaultModel = 'gpt-oss:latest';
+            const defaultModel = 'phi3:14b';  // Use smaller model that doesn't crash
             
             if (providers[defaultProvider]) {
                 providerSelect.value = defaultProvider;
